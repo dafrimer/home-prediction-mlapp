@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install ping utility for health checks
+RUN apt-get update && apt-get install -y iputils-ping 
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+fastapi uvicorn scikit-learn pandas \
+asyncpg sqlalchemy[asyncio] joblib \
+loguru mlflow==2.22.1 psycopg2-binary \
+xgboost python-multipart
+
+# Copy application code
+COPY ./homeprices /app
+
+# Copy models directory (assumes models/ exists in build context)
+COPY ./model /app/models/v1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

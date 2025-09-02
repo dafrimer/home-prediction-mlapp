@@ -1,0 +1,46 @@
+services:
+  homeprices:
+    build:
+      context: .
+      dockerfile: Dockerfile.homeprices
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/homedata
+    volumes:
+      - ./model_artifacts:/app/models
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_started
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: homedata
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db_init:/docker-entrypoint-initdb.d
+      - ./data:/datafiles
+
+
+  trainer:
+    build:
+      context: .
+      dockerfile: training/Dockerfile
+    volumes:
+      - ./data:/app/data
+      - ./model_training:/app/output
+    environment:
+      - PYTHONPATH=/app
+    profiles: ["training"]  # Only run when requested
+    depends_on:
+      - db
+
+volumes:
+  db_data:
