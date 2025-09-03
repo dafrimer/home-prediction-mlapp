@@ -2,7 +2,7 @@
 
 
 ## Initial Setup:
-Follow the original steps in creating the `housing` environment from the instructions in conda.  As a reminder `conda create env -f conda_environment.yaml -y` then run `conda activate housing && python setup/create_model`
+Follow the original steps in creating the `housing` environment from the instructions in conda.  As a reminder `conda create env -f conda_environment.yaml -y` then run `conda activate housing && python setup/create_model.py`
 
 
 ## Steps: 
