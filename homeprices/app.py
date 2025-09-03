@@ -1,18 +1,17 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional,List
 import os
 from contextlib import asynccontextmanager
 from model_manager import ModelManager
-from data_enricher import DataEnricher
-import logging
+from data_enricher import Featurizer
+from loguru import logger 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 # Global instances
 model_manager = ModelManager()
-data_enricher = DataEnricher()
+featurizer = Featurizer()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,43 +21,28 @@ async def lifespan(app: FastAPI):
     if model_loaded:
         logger.info(f"Model loaded successfully: {model_manager.get_version()}")
     else:
-        logger.warning("No model loaded - predictions will fail until model is available")
+        logger.error("No model loaded - predictions will fail until model is available")
     
     # Initialize data enricher
-    await data_enricher.initialize()
+    await featurizer.initialize()
     
     yield
     
     # Cleanup
-    await data_enricher.cleanup()
+    await featurizer.cleanup()
 
 app = FastAPI(
     title="Home Price Prediction API",
-    description="Predict house prices with demographic enrichment",
+    description="Predict house prices with zipcode data",
     version="1.0.0",
     lifespan=lifespan
 )
 
 class PredictionRequest(BaseModel):
-    """Request model for full prediction with zipcode enrichment"""
-    bedrooms: float
-    bathrooms: float
-    sqft_living: float
-    sqft_lot: float
-    floors: float
-    waterfront: float
-    view: float
-    condition: float
-    grade: float
-    sqft_above: float
-    sqft_basement: float
-    yr_built: float
-    yr_renovated: float
-    zipcode: str
-    lat: float
-    long: float
-    sqft_living15: float
-    sqft_lot15: float
+    """Request model for full prediction with zipcode data"""
+    features: Dict[str, Any]
+    version: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class MinimalPredictionRequest(BaseModel):
     """Request model for minimal prediction - all features must be provided"""
@@ -77,8 +61,17 @@ async def health_check():
         "status": "healthy",
         "model_loaded": model_manager.is_loaded(),
         "model_version": model_manager.get_version(),
-        "data_enricher_ready": data_enricher.is_ready()
+        "demographic_data_ready": featurizer.is_ready()
     }
+
+
+class BulkPredictionRequest(BaseModel):
+    """Request model for bulk predictions"""
+    features: List[Dict[str, Any]]
+    version: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+  
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
@@ -87,13 +80,19 @@ async def predict(request: PredictionRequest):
     """
     if not model_manager.is_loaded():
         raise HTTPException(status_code=503, detail="Model not available")
+
+    if not featurizer.is_ready():
+        raise HTTPException(status_code=503, detail="Data enricher not ready")
     
     # Convert request to dict
-    features = request.model_dump()
+    input = request.model_dump()
+    logger.info(f"Received prediction request: {input}")
+    features = input.get("features", {})
     
     # Enrich with demographic data
     try:
-        enriched_features = await data_enricher.enrich(features)
+        enriched_features = await featurizer.enrich(features)
+        # logger.info(f"Enriched features: {enriched_features}")
     except Exception as e:
         logger.error(f"Failed to enrich features: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to enrich data: {str(e)}")
@@ -110,11 +109,10 @@ async def predict(request: PredictionRequest):
         logger.error(f"Prediction failed: {e}")
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 
-@app.post("/predict-minimal", response_model=PredictionResponse)
-async def predict_minimal(request: MinimalPredictionRequest):
+@app.post("/predict-strict", response_model=PredictionResponse)
+async def predict_strict(request: MinimalPredictionRequest):
     """
-    Minimal prediction endpoint - expects all required features from client
-    No automatic enrichment is performed
+    Strict prediction endpoint - expects *only* the required features from client    
     """
     if not model_manager.is_loaded():
         raise HTTPException(status_code=503, detail="Model not available")
@@ -123,11 +121,12 @@ async def predict_minimal(request: MinimalPredictionRequest):
     required_features = model_manager.get_required_features()
     provided_features = set(request.features.keys())
     missing_features = required_features - provided_features
+    excess_features = provided_features - required_features
     
-    if missing_features:
+    if missing_features or excess_features:
         raise HTTPException(
             status_code=400,
-            detail=f"Missing required features: {list(missing_features)}"
+            detail=f"Missing required features: {list(missing_features)}; Excess features: {list(excess_features)}    "
         )
     
     # Make prediction
@@ -142,12 +141,31 @@ async def predict_minimal(request: MinimalPredictionRequest):
         logger.error(f"Prediction failed: {e}")
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 
-@app.post("/model/reload")
-async def reload_model():
+@app.get("/model/versions")
+async def list_model_versions():
+    """
+    List available model versions
+    """
+    versions = model_manager.list_versions()
+    return {
+        "available_versions": versions,
+        "current_version": model_manager.get_version()
+    }
+
+class ModelReloadRequest(BaseModel):
+    version: Optional[str] = None
+
+class ModelReloadResponse(BaseModel):
+    status: str
+    message: str
+    version: str
+
+@app.post("/model/reload", response_model=ModelReloadResponse)
+async def reload_model(request: ModelReloadRequest):
     """
     Reload the model (useful for hot-swapping new versions)
     """
-    success = model_manager.reload()
+    success = model_manager.reload(request.version)
     if success:
         return {
             "status": "success",

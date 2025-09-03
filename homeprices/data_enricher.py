@@ -1,8 +1,11 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
+from typing import List, Dict, Any
+from loguru import logger
 
-class DataEnricher:
+
+class Featurizer:
     def __init__(self):
         self.engine = None
     
@@ -13,6 +16,7 @@ class DataEnricher:
             self.engine = create_async_engine(db_url)
             async with self.engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
+                await conn.execute(text("SELECT * from zipcode_demo LIMIT 1"))
             print("Database connected")
         except Exception as e:
             print(f"Database connection failed: {e}")
