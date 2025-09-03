@@ -16,7 +16,7 @@ xgboost python-multipart
 COPY ./homeprices /app
 
 # Copy models directory (assumes models/ exists in build context)
-COPY ./model /app/models/v1
+COPY ./model /app/models/original
 
 EXPOSE 8000
 
