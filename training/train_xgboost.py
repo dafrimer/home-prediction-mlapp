@@ -14,6 +14,9 @@ import pickle
 import argparse
 import loguru
 import shutil
+import requests
+from datetime import datetime
+
 
 def load_and_prepare_data(data_path: str, demographics_data_path: str):
     """Load and prepare training data"""
@@ -34,6 +37,7 @@ def load_and_prepare_data(data_path: str, demographics_data_path: str):
     y = df.pop('price')
     # Filter to available columns
     available_features = [col for col in df.columns if col not in ('price', 'id', 'date', 'lat', 'long')]
+
     loguru.logger.info(f"Using {len(available_features)} features: {available_features}")
     X = df[available_features]
     return X, y, available_features
@@ -66,51 +70,51 @@ def train_model(X_train, y_train, X_val, y_val, params=None):
     return model
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_model(model, X, y, dataset: str = 'test'):
     """Evaluate model and return metrics"""
-    loguru.logger.info("Evaluating model on test set...")
+    if dataset not in ['train', 'test','validation']:
+        raise ValueError("dataset must be either 'train' ,'validation', or 'test'")
     
-    y_pred = model.predict(X_test)
+    loguru.logger.info(f"Evaluating model on {dataset} set...")
+    
+    y_pred = model.predict(X)
     
     metrics = {
-        'test_rmse': float(np.sqrt(mean_squared_error(y_test, y_pred))),
-        'test_mae': float(mean_absolute_error(y_test, y_pred)),
-        'test_r2': float(r2_score(y_test, y_pred))
+        f'{dataset}_rmse': float(np.sqrt(mean_squared_error(y, y_pred))),
+        f'{dataset}_mae': float(mean_absolute_error(y, y_pred)),
+        f'{dataset}_r2': float(r2_score(y, y_pred))
     }
     
-    loguru.logger.info(f"Test RMSE: ${metrics['test_rmse']:,.2f}")
-    loguru.logger.info(f"Test MAE: ${metrics['test_mae']:,.2f}")
-    loguru.logger.info(f"Test R²: {metrics['test_r2']:.4f}")
+    loguru.logger.info(f"{dataset.capitalize()} RMSE: ${metrics[f'{dataset}_rmse']:,.2f}")
+    loguru.logger.info(f"{dataset.capitalize()} MAE: ${metrics[f'{dataset}_mae']:,.2f}")
+    loguru.logger.info(f"{dataset.capitalize()} R²: {metrics[f'{dataset}_r2']:.4f}")
     
     return metrics
 
+def main(data_path:str = '/app/data/kc_house_data.csv'
+               , demographics_path:str = '/app/data/zipcode_demographics.csv'
+               , output_dir:str = '/app/output'
+               ):
 
-def main():
-    parser = argparse.ArgumentParser(description='Train XGBoost house price prediction model')
-    parser.add_argument('--data-path', default='/app/data/kc_house_data.csv', help='Path to training data CSV')
-    parser.add_argument('--demographics-path', default='/app/data/zipcode_demographics.csv', help='Path to demographics data CSV')
-    parser.add_argument('--output-dir', default='/app/output', help='Output directory for model files')
-    
-    args = parser.parse_args()
-    
-    loguru.logger.info("🚀 Starting XGBoost model training...")
     
     try:
         # Check if data files exist
-        if not os.path.exists(args.data_path):
-            raise FileNotFoundError(f"Training data not found: {args.data_path}")
-        if not os.path.exists(args.demographics_path):
-            raise FileNotFoundError(f"Demographics data not found: {args.demographics_path}")
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"Training data not found: {data_path}")
+        if not os.path.exists(demographics_path):
+            raise FileNotFoundError(f"Demographics data not found: {demographics_path}")
         
         # Load and prepare data
-        X, y, feature_names = load_and_prepare_data(args.data_path, args.demographics_path)
+        X, y, feature_names = load_and_prepare_data(data_path, demographics_path)
         
         # Train/validation/test split (60/20/20)
         X_temp, X_test, y_temp, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
+            X, y, test_size=0.2
+            # , random_state=42 # Intentionally commented out for variability
         )
         X_train, X_val, y_train, y_val = train_test_split(
-            X_temp, y_temp, test_size=0.25, random_state=42
+            X_temp, y_temp, test_size=0.25
+            # , random_state=42 # Intentionally commented out for variability
         )
         
         # Model parameters
@@ -129,10 +133,12 @@ def main():
         
         # Evaluate model
         metrics = evaluate_model(model, X_test, y_test)
-        
+        train_metrics = evaluate_model(model, X_train, y_train, dataset='train')
+        metrics.update(train_metrics)
+
         # Create version-specific directory
-        version = f"v{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
-        version_dir = os.path.join(args.output_dir, version)
+        version = f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        version_dir = os.path.join(output_dir, version)
         os.makedirs(version_dir, exist_ok=True)
         
         # Save model in version directory
@@ -144,13 +150,13 @@ def main():
         # Save features in version directory
         features_path = os.path.join(version_dir, "model_features.json")
         with open(features_path, 'w') as f:
-            json.dump(feature_names, f, indent=2)
+            json.dump(feature_names, f)
         loguru.logger.info(f"Features saved to: {features_path}")
         
         # Also create/update symlinks for "latest" model in root output directory  
-        latest_model_path = os.path.join(args.output_dir, "model.pkl")
-        latest_features_path = os.path.join(args.output_dir, "model_features.json")
-        latest_metadata_path = os.path.join(args.output_dir, "model_metadata.json")
+        latest_model_path = os.path.join(output_dir, "model.pkl")
+        latest_features_path = os.path.join(output_dir, "model_features.json")
+        latest_metadata_path = os.path.join(output_dir, "model_metadata.json")
         
         
     
@@ -171,7 +177,7 @@ def main():
             json.dump(metadata, f, indent=2)
         loguru.logger.info(f"Metadata saved to: {metadata_path}")
         
-        loguru.logger.success("✅ TRAINING COMPLETED SUCCESSFULLY!")
+        loguru.logger.info("TRAINING COMPLETED SUCCESSFULLY!")
         loguru.logger.info(f"Model version: {metadata['version']}")
         loguru.logger.info(f"Test R²: {metrics['test_r2']:.4f}")
         loguru.logger.info(f"Features: {len(feature_names)}")
@@ -183,18 +189,22 @@ def main():
                 'importance': model.feature_importances_
             }).sort_values('importance', ascending=False)
             
-            loguru.logger.info("Top 10 Feature Importances:")
-            for idx, row in feature_importance.head(10).iterrows():
-                loguru.logger.info(f"  {row['feature']}: {row['importance']:.4f}")
-        
-        return 0
+            # loguru.logger.info("Top 10 Feature Importances:")
+            # for idx, row in feature_importance.head(10).iterrows():
+            #     loguru.logger.info(f"  {row['feature']}: {row['importance']:.4f}")
         
     except Exception as e:
         loguru.logger.error(f"Training failed: {e}")
-        import traceback
-        traceback.print_exc()
         return 1
 
 
 if __name__ == "__main__":
-    exit(main())
+    
+    parser = argparse.ArgumentParser(description='Train XGBoost house price prediction model')
+    parser.add_argument('--data-path', default='/app/data/kc_house_data.csv', help='Path to training data CSV')
+    parser.add_argument('--demographics-path', default='/app/data/zipcode_demographics.csv', help='Path to demographics data CSV')
+    parser.add_argument('--output-dir', default='/app/output', help='Output directory for model files')
+    parser.add_argument('--upload-model', action='store_true', help='Whether to upload the model after training')
+    args = parser.parse_args()
+
+    exit(main(args.data_path, args.demographics_path, args.output_dir  ))
