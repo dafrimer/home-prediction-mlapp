@@ -1,11 +1,20 @@
 # home-prediction-mlapp
 
+## Table of Contents
+
+- [Initial Setup](#initial-setup)
+- [Steps](#steps)
+    - [Build Services](#build-services)
+    - [Expanding more Models](#expanding-more-models)    
+- [Known Bugs](#known-bugs)    
 
 ## Initial Setup:
 Follow the original steps in creating the `housing` environment from the instructions in conda.  As a reminder `conda create env -f conda_environment.yaml -y` then run `conda activate housing && python setup/create_model.py`
 
 
 ## Steps: 
+
+### Build Services
 
 ```docker compose up -d```
 
@@ -75,6 +84,8 @@ Model is OVERFITTING - training error much lower than test error
 
 Look in model_artifacts for model Version i.e V[%Y%m%d_%H%M%S]
 
+Note:  You may see overfitting errors, as the trainer is currently built to mimic a data scientist running 
+
 ``` docker compose --profile training run trainer python main.py --evaluate --model-version [model_version]```
 
 Output: 
@@ -96,3 +107,17 @@ Test RMSE: $104,207
 Test R²: 0.927
 Model fit is APPROPRIATE - balanced training/test performance
 ```
+
+## Known Bugs
+
+## Hot Reloads Default
+By default, any time the fastapi service is started it will default to the latest model that was trained (or original if none).  This in theory may always be the latest and greatest model, but in theory there are cases where a rollback would be overly complex.
+
+*Quick Fix*: Updating a file that symlinks, or copies the full model to a main folder when /model/reload is called.  
+
+## Permissions and position of /model/reload
+When wanting to point to a new model, we've decided between different points of when a model should be reloaded.  While functionally, /model/reload makes sense to have the server update the model it (1) introduces complexity for permission level and (2) makes the fastapi server the conductor of the ML Model repository which should be handled by a separate service.
+
+*Quick fix*:  Implement a separate fastapi server, or leverage MLflow  to be the manager of the model repo.  This would lend much more control and can still leverage the model/reload/ to acquire am explicit version
+
+*Feature Request*: There are several cases in where multiple model versions would be necessary. Implementing a new feature in which multiple versions can be hosted  would prove valuable.
