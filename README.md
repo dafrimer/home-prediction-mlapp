@@ -73,9 +73,9 @@ Test R²: 0.728
 Model is OVERFITTING - training error much lower than test error
 ```
 
+Look in model_artifacts for model Version i.e V[%Y%m%d_%H%M%S]
 
-
-``` docker compose --profile training run trainer python main.py --evaluate --model-version original```
+``` docker compose --profile training run trainer python main.py --evaluate --model-version [model_version]```
 
 Output: 
 ```
