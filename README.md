@@ -13,7 +13,7 @@ Go ahead and try the post on the original model we created from the conda housin
 ```
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{
+  -d '{"features" : {
     "bedrooms": 4,
     "bathrooms": 1.0,
     "sqft_living": 1680,
@@ -32,7 +32,7 @@ curl -X POST http://localhost:8000/predict \
     "long": -122.273,
     "sqft_living15": 1560,
     "sqft_lot15": 5765
-  }'
+  }}'
 ```
 
 *BONUS* Before diving into the next section we will quickly walk through an iteration on strict predictions predict.  As I understood it there are required features we'd expect strictly for the model, where as in the usual predict implementation the features are collected around housing input, and then demo data is added on afterwards.  In this case we'll use whats called `predict-strict`. to enforce the model variables be provided in the feature request itself rather than collecting from the sql database.
